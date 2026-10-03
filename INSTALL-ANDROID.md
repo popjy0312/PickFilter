@@ -5,8 +5,8 @@
 ## 설치
 
 1. Google Play에서 Microsoft Corporation이 제공하는 **Microsoft Edge Canary**를 설치합니다.
-2. 릴리스의 **PickFilter-Android-CRX-v0.1.6.zip**을 휴대전화로 다운로드합니다. 비공개 저장소이므로 접근 가능한 GitHub 계정으로 로그인해야 합니다.
-3. 휴대전화의 파일 관리 앱에서 ZIP을 풀어 **PickFilter-v0.1.6.crx**를 꺼냅니다. 이 ZIP은 PC용 확장 소스 ZIP과 다릅니다.
+2. 릴리스의 **PickFilter-Android-CRX-v0.1.7.zip**을 휴대전화로 다운로드합니다. 비공개 저장소이므로 접근 가능한 GitHub 계정으로 로그인해야 합니다.
+3. 휴대전화의 파일 관리 앱에서 ZIP을 풀어 **PickFilter-v0.1.7.crx**를 꺼냅니다. 이 ZIP은 PC용 확장 소스 ZIP과 다릅니다.
 4. Edge Canary에서 **설정 → Microsoft Edge 정보**로 이동하고 버전/빌드 번호를 5번 정도 누릅니다.
 5. 설정으로 돌아가 **개발자 옵션 → Extension install by crx**를 선택합니다.
 6. 압축을 풀어 둔 `.crx` 파일을 선택하고 설치 안내에 따릅니다.

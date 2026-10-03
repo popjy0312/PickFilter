@@ -100,7 +100,7 @@
     event.preventDefault(); event.stopImmediatePropagation();
     const selected = event.target;
     if (!(selected instanceof Element) || readCount(selected.textContent) === null) {
-      status('숫자 또는 [74] 같은 댓글수 표시를 클릭하세요. Esc로 취소할 수 있습니다.'); return;
+      status('숫자, 1.3k·1.3천 같은 축약값 또는 [74] 같은 댓글수를 클릭하세요. Esc로 취소할 수 있습니다.'); return;
     }
     options = candidates(selected);
     if (!options.length) { status('반복되는 게시글 구조를 찾지 못했습니다. 다른 숫자 항목을 선택하세요.'); return; }

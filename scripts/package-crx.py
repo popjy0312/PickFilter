@@ -101,6 +101,10 @@ def main():
                 stream.write((work / 'extension.pem').read_bytes())
         output = ROOT / 'dist'
         output.mkdir(exist_ok=True)
+        pc_zip = output / f'PickFilter-v{version}.zip'
+        with zipfile.ZipFile(pc_zip, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for name in FILES:
+                archive.write(ROOT / name, name)
         crx = output / f'PickFilter-v{version}.crx'
         crx.write_bytes(data)
         bundle = output / f'PickFilter-Android-CRX-v{version}.zip'
@@ -110,6 +114,7 @@ def main():
         print(f'Verified CRX3 signature and package: {crx}')
         print(f'Extension ID: {extension_id}')
         print(f'SHA256: {hashlib.sha256(data).hexdigest()}')
+        print(f'PC download bundle: {pc_zip}')
         print(f'Android download bundle: {bundle}')
         print(f'Keep the private signing key for updates: {key}')
 

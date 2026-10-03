@@ -215,6 +215,24 @@ const assert = require('node:assert/strict');
     assert.match(await evaluate("button('status').textContent"), /저장된 숫자 위치를 찾지 못했습니다/, 'ambiguous container is never guessed');
     assert.equal(await evaluate("[...document.querySelectorAll('.card')].filter(el => getComputedStyle(el).display !== 'none').length"), 4);
 
+    await loadPage('compact?page=1', `
+      const values = ['1.3k', '1.3천', '1.2만', '0.9K', '[1.3k]', '잘못된 값'];
+      document.querySelectorAll('#posts .views span').forEach((el, i) => el.textContent = values[i]);`);
+    await evaluate("button('pick').click(); document.querySelector('#posts .views span').click(); button('confirm').click(); button('threshold').value='1300'; button('apply').click()");
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 4개 · 숨김 1개 · 판독 불가 1개/, 'compact values are selectable and included at exact threshold');
+    await loadPage('compact?page=2', `
+      const values = ['1.3천', '1.29k', '2M', '[1.3천]', '0.9k', '비공개'];
+      document.querySelectorAll('#posts .views span').forEach((el, i) => el.textContent = values[i]);`);
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 2개 · 판독 불가 1개/, 'compact metrics restore across pagination');
+    await loadPage('formatted?page=1', `
+      const values = ['조회수 1.3천회', '1 234', '１．３ｋ', '댓글 [1.3k]', '1만 2천', '1k+'];
+      document.querySelectorAll('#posts .views span').forEach((el, i) => el.textContent = values[i]);`);
+    await evaluate("button('pick').click(); document.querySelector('#posts .views span').click(); button('confirm').click(); button('threshold').value='1300'; button('apply').click()");
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 4개 · 숨김 1개 · 판독 불가 1개/, 'labels, unicode and composite units share the same filtering parser');
+    await loadPage('formatted?page=2', `
+      const values = ['1,3k', '(1.3천)', '1万2千', '900 views', '74%', '조회수 74 댓글수 12'];
+      document.querySelectorAll('#posts .views span').forEach((el, i) => el.textContent = values[i]);`);
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 1개 · 판독 불가 2개/, 'unsafe or multiple values remain visible after restore');
     console.log('PASS: Chrome DOM integration — selection, table/card scopes, thresholds, invalid counts, restoration, Esc, reinjection, stale DOM, pagination, reload, scope isolation, disabled state, changed structure, bracketed comments, comment pagination and reset.');
   } finally {
     if (socket) socket.close();
