@@ -1,1 +1,1 @@
-globalThis.__pickFilterV1?.open();
+globalThis.__pickFilterV1?.toggle();

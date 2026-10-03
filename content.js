@@ -6,6 +6,12 @@
   const host = document.createElement('div');
   host.hidden = true;
   host.style.cssText = 'all:initial;position:fixed;right:20px;top:20px;z-index:2147483647;';
+  // all:initial overrides the browser's default [hidden] display rule.
+  function setPanelVisible(visible) {
+    host.hidden = !visible;
+    host.style.setProperty('display', visible ? 'block' : 'none', 'important');
+  }
+  setPanelVisible(false);
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
     <style>
@@ -45,7 +51,6 @@
     const settings = { recipe: savedRecipe, threshold: savedThreshold, enabled };
     saveQueue = saveQueue.then(() => chrome.storage.local.set({ [storageKey]: settings })).catch(() => {
       status('현재 필터는 적용됐지만 설정 저장에 실패했습니다. 확장을 다시 로드하세요.');
-      host.hidden = false;
     });
   }
   const status = message => { $('status').textContent = message; };
@@ -134,11 +139,19 @@
   };
   $('apply').onclick = () => applyFilter();
   $('reset').onclick = () => { stopPicking(); clearMarks(); active = false; persist(false); status('필터를 해제했습니다. 원래 목록을 표시합니다.'); };
-  $('close').onclick = () => { stopPicking(); if (!active) clearMarks(); host.hidden = true; };
+  function hidePanel() {
+    stopPicking();
+    if (!active) clearMarks();
+    setPanelVisible(false);
+  }
+  $('close').onclick = hidePanel;
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && picking) { stopPicking(); status('선택을 취소했습니다.'); }
   }, true);
-  globalThis[KEY] = { open: () => { host.hidden = false; } };
+  globalThis[KEY] = { toggle: () => {
+    if (host.hidden) setPanelVisible(true);
+    else hidePanel();
+  } };
   (async () => {
     try {
       const saved = (await chrome.storage.local.get(storageKey))[storageKey];
@@ -149,7 +162,6 @@
       $('threshold').value = saved.threshold;
       const option = restoreRecipe(saved.recipe);
       if (!option) {
-        host.hidden = false;
         status('저장된 숫자 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
         return;
       }
