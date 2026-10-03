@@ -13,6 +13,12 @@
   }
   setPanelVisible(false);
   const shadow = host.attachShadow({ mode: 'open' });
+  // Shadow DOM retargets input events to the host div, so page shortcut handlers
+  // may mistake typing here for a page-level shortcut. Keep editing defaults.
+  for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input', 'change',
+    'compositionstart', 'compositionupdate', 'compositionend', 'copy', 'cut', 'paste']) {
+    shadow.addEventListener(type, event => event.stopPropagation());
+  }
   shadow.innerHTML = `
     <style>
       :host{color-scheme:light}*{box-sizing:border-box}section{width:340px;max-width:calc(100vw - 32px);max-height:90vh;overflow:auto;background:#fff;color:#1e293b;border:1px solid #cbd5e1;border-radius:16px;box-shadow:0 12px 45px #0f172a33;font:14px/1.6 system-ui,sans-serif;padding:20px}

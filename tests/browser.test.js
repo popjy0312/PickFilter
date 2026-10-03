@@ -62,6 +62,8 @@ const assert = require('node:assert/strict');
     await evaluate(storageMock);
     const code = await readFile(path.join(root, 'core.js'), 'utf8') + '\n' + await readFile(path.join(root, 'content.js'), 'utf8');
     const openCode = await readFile(path.join(root, 'open.js'), 'utf8');
+    await evaluate(`globalThis.pageShortcuts = [];
+      for (const type of ['keydown', 'keypress', 'keyup']) document.addEventListener(type, event => pageShortcuts.push(type + ':' + event.key));`);
     await evaluate(code);
     await evaluate(`globalThis.panel = [...document.documentElement.children].find(el => el.shadowRoot)?.shadowRoot;
       globalThis.button = id => panel.getElementById(id);
@@ -79,6 +81,15 @@ const assert = require('node:assert/strict');
     await evaluate(openCode);
     assert.equal(await evaluate("document.querySelector('#pick-target').dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true}))"), true, 'hiding panel cancels selection click interception');
     await evaluate(openCode);
+    await evaluate("choose('#pick-target'); button('threshold').value = ''; button('threshold').focus(); pageShortcuts.length = 0");
+    for (const digit of ['1', '0', '0', '0']) {
+      await send('Input.dispatchKeyEvent', { type: 'keyDown', key: digit, text: digit, unmodifiedText: digit, windowsVirtualKeyCode: digit.charCodeAt(0) });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: digit, windowsVirtualKeyCode: digit.charCodeAt(0) });
+    }
+    assert.equal(await evaluate("button('threshold').value"), '1000', 'real keyboard entry remains editable');
+    assert.deepEqual(await evaluate('pageShortcuts'), [], 'input keystrokes do not trigger page shortcuts');
+    await evaluate("button('threshold').blur(); document.dispatchEvent(new KeyboardEvent('keydown', {key:'5', bubbles:true}))");
+    assert.deepEqual(await evaluate('pageShortcuts'), ['keydown:5'], 'page keyboard shortcuts still work outside panel');
     await evaluate("choose('#pick-target'); apply('1,000')");
     assert.equal(await evaluate('visibleRows()'), 4, 'two matches plus two unreadable rows remain');
     assert.match(await evaluate("button('status').textContent"), /조건 일치 2개 · 숨김 2개 · 판독 불가 2개/);
