@@ -1,8 +1,10 @@
 (() => {
   const KEY = '__pickFilterV1';
-  if (globalThis[KEY]) { globalThis[KEY].open(); return; }
-  const { parseCount, candidates } = globalThis.PickFilterCore;
+  if (globalThis[KEY]) return;
+  const { parseCount, candidates, scopeKey, recipeFor, restoreRecipe } = globalThis.PickFilterCore;
+  const storageKey = scopeKey(location.href);
   const host = document.createElement('div');
+  host.hidden = true;
   host.style.cssText = 'all:initial;position:fixed;right:20px;top:20px;z-index:2147483647;';
   const shadow = host.attachShadow({ mode: 'open' });
   shadow.innerHTML = `
@@ -12,7 +14,7 @@
     </style>
     <section aria-label="PickFilter 설정">
       <header><h2>PickFilter</h2><button id="close" aria-label="패널 닫기">✕</button></header>
-      <small>현재 페이지 · 조회수 필터</small>
+      <small>게시판별 저장 · 조회수 필터</small>
       <p>게시글의 조회수 숫자를 선택하고, 게시글 범위를 확인하세요.</p>
       <button id="pick" class="primary">조회수 선택</button>
       <div id="selection" hidden>
@@ -24,7 +26,7 @@
       <input id="threshold" inputmode="numeric" placeholder="예: 1,000" value="1000">
       <div class="row"><button id="apply" class="primary" disabled>적용</button><button id="reset">필터 해제</button></div>
       <p id="status" role="status" aria-live="polite">조회수를 선택해 시작하세요.</p>
-      <small>판독 불가 항목은 유지합니다. 새로고침하면 설정이 초기화됩니다.</small>
+      <small>적용한 설정은 같은 게시판의 다음 페이지와 새로고침 후에도 유지됩니다.</small>
     </section>`;
   document.documentElement.append(host);
   const $ = id => shadow.getElementById(id);
@@ -34,7 +36,18 @@
   document.documentElement.append(style);
   const marked = new Set();
   let options = [], index = 0, confirmed = false, picking = false, hover = null;
-  let active = false;
+  let active = false, touched = false, savedRecipe = null, savedThreshold = 1000;
+  let saveQueue = Promise.resolve();
+  shadow.addEventListener('click', () => { touched = true; }, true);
+  shadow.addEventListener('input', () => { touched = true; }, true);
+  function persist(enabled) {
+    if (!savedRecipe) return;
+    const settings = { recipe: savedRecipe, threshold: savedThreshold, enabled };
+    saveQueue = saveQueue.then(() => chrome.storage.local.set({ [storageKey]: settings })).catch(() => {
+      status('현재 필터는 적용됐지만 설정 저장에 실패했습니다. 확장을 다시 로드하세요.');
+      host.hidden = false;
+    });
+  }
   const status = message => { $('status').textContent = message; };
   function clearMarks() {
     marked.forEach(el => el.removeAttribute(token));
@@ -98,7 +111,7 @@
     confirmed = true; clearMarks(); $('apply').disabled = false;
     status('범위를 확정했습니다. 최소 조회수를 입력하고 적용하세요.');
   };
-  $('apply').onclick = () => {
+  function applyFilter(save = true) {
     if (!confirmed) return;
     const threshold = parseCount($('threshold').value);
     if (threshold === null) { status('최소 조회수는 0 이상의 정수로 입력하세요. 예: 1,000'); return; }
@@ -116,12 +129,36 @@
       else shown++;
     }
     active = true;
+    if (save) { savedRecipe = recipeFor(options[index]); savedThreshold = threshold; persist(true); }
     status(`조건 일치 ${shown}개 · 숨김 ${hidden}개 · 판독 불가 ${unknown}개 (유지)` + (shown === 0 ? '\n조건에 맞는 게시글이 없습니다.' : ''));
   };
-  $('reset').onclick = () => { stopPicking(); clearMarks(); active = false; status('필터를 해제했습니다. 원래 목록을 표시합니다.'); };
+  $('apply').onclick = () => applyFilter();
+  $('reset').onclick = () => { stopPicking(); clearMarks(); active = false; persist(false); status('필터를 해제했습니다. 원래 목록을 표시합니다.'); };
   $('close').onclick = () => { stopPicking(); if (!active) clearMarks(); host.hidden = true; };
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && picking) { stopPicking(); status('선택을 취소했습니다.'); }
   }, true);
   globalThis[KEY] = { open: () => { host.hidden = false; } };
+  (async () => {
+    try {
+      const saved = (await chrome.storage.local.get(storageKey))[storageKey];
+      if (!saved || touched) return;
+      savedRecipe = saved.recipe;
+      if (parseCount(saved.threshold) === null) return;
+      savedThreshold = saved.threshold;
+      $('threshold').value = saved.threshold;
+      const option = restoreRecipe(saved.recipe);
+      if (!option) {
+        host.hidden = false;
+        status('저장된 조회수 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
+        return;
+      }
+      options = [option]; index = 0; confirmed = true;
+      $('apply').disabled = false;
+      if (saved.enabled) applyFilter(false);
+      else status('저장된 설정을 불러왔습니다. 적용을 누르면 필터를 다시 켭니다.');
+    } catch {
+      status('저장된 설정을 불러오지 못했습니다. 조회수를 다시 선택하세요.');
+    }
+  })();
 })();

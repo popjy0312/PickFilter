@@ -1,9 +1,30 @@
 {
   "manifest_version": 3,
   "name": "PickFilter — 조회수 필터",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "페이지에서 조회수 요소를 선택하고 기준 이상인 게시글만 표시합니다.",
-  "permissions": ["activeTab", "scripting"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_title": "PickFilter 열기" }
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "PickFilter 열기"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.fmkorea.com/*",
+        "https://fmkorea.com/*"
+      ],
+      "js": [
+        "core.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }

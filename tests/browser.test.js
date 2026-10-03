@@ -57,8 +57,12 @@ const assert = require('node:assert/strict');
       if (await evaluate("document.querySelectorAll('#posts tr').length === 6")) break;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    const storageMock = `globalThis.chrome = { storage: { local: { async get(key) { return { [key]: JSON.parse(localStorage.getItem(key) || 'null') }; }, async set(values) { for (const [key, value] of Object.entries(values)) localStorage.setItem(key, JSON.stringify(value)); } } } };`;
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: storageMock });
+    await evaluate(storageMock);
     const code = await readFile(path.join(root, 'core.js'), 'utf8') + '\n' + await readFile(path.join(root, 'content.js'), 'utf8');
-    await evaluate(code);
+    const openCode = await readFile(path.join(root, 'open.js'), 'utf8');
+    await evaluate(code + openCode);
     await evaluate(`globalThis.panel = [...document.documentElement.children].find(el => el.shadowRoot)?.shadowRoot;
       globalThis.button = id => panel.getElementById(id);
       globalThis.visibleRows = () => [...document.querySelectorAll('#posts tr')].filter(el => getComputedStyle(el).display !== 'none').length;
@@ -83,7 +87,7 @@ const assert = require('node:assert/strict');
     assert.match(await evaluate("button('status').textContent"), /취소/);
     await evaluate("choose('#pick-target'); apply('1000'); button('close').click()");
     assert.equal(await evaluate('visibleRows()'), 4, 'closing retains filter');
-    await evaluate(code);
+    await evaluate(code + openCode);
     assert.equal(await evaluate("[...document.documentElement.children].filter(el => el.shadowRoot).length"), 1, 'reinjection reuses panel');
     assert.equal(await evaluate('panel.host.hidden'), false, 'reinjection opens panel');
     await evaluate("button('reset').click(); choose('#card-target'); apply('1000')");
@@ -92,7 +96,45 @@ const assert = require('node:assert/strict');
     await evaluate("button('reset').click(); choose('#pick-target'); document.querySelector('#posts tr').remove(); apply('1000')");
     assert.match(await evaluate("button('status').textContent"), /목록 구조가 변경/);
     assert.equal(await evaluate('visibleRows()'), 5, 'changed structure does not hide stale selection');
-    console.log('PASS: Chrome DOM integration — selection, table/card scopes, thresholds, invalid counts, restoration, Esc, reinjection, stale DOM.');
+
+    async function loadPage(suffix, mutate) {
+      await send('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/${suffix}` });
+      for (let i = 0; i < 100; i++) {
+        if (await evaluate(`location.href === ${JSON.stringify(`http://127.0.0.1:${server.address().port}/${suffix}`)} && document.readyState === 'complete' && !!document.querySelector('#posts') && !globalThis.__pickFilterV1`)) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (mutate) await evaluate(mutate);
+      await evaluate(storageMock);
+      await evaluate(code);
+      await evaluate(`globalThis.panel = [...document.documentElement.children].find(el => el.shadowRoot)?.shadowRoot;
+        globalThis.button = id => panel.getElementById(id);
+        globalThis.visibleRows = () => [...document.querySelectorAll('#posts tr')].filter(el => getComputedStyle(el).display !== 'none').length;`);
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    await loadPage('?page=1');
+    await evaluate("button('pick').click(); document.querySelector('#pick-target').click(); button('confirm').click(); button('threshold').value='1000'; button('apply').click()");
+    await loadPage('?page=2');
+    assert.equal(await evaluate('visibleRows()'), 4, 'next page automatically reuses row selection and threshold');
+    assert.equal(await evaluate("button('threshold').value"), '1000');
+    assert.equal(await evaluate('panel.host.hidden'), true, 'automatic restoration does not open panel');
+    await loadPage('?page=2');
+    assert.equal(await evaluate('visibleRows()'), 4, 'reloading the same URL keeps filtering');
+    await loadPage('?page=3');
+    assert.equal(await evaluate('visibleRows()'), 4, 'further pagination persists');
+    await loadPage('other?page=2');
+    assert.equal(await evaluate('visibleRows()'), 6, 'different board remains unfiltered');
+    await loadPage('?search_keyword=other&page=2');
+    assert.equal(await evaluate('visibleRows()'), 6, 'different search is separate');
+    await loadPage('?page=4');
+    await evaluate("button('reset').click()");
+    await loadPage('?page=5');
+    assert.equal(await evaluate('visibleRows()'), 6, 'disabled filter stays off after navigation');
+    assert.equal(await evaluate("button('threshold').value"), '1000', 'disabled filter retains threshold');
+    assert.equal(await evaluate("button('apply').disabled"), false, 'disabled filter retains selection');
+    await loadPage('?page=6', "document.querySelector('#posts').id = 'changed-list'");
+    assert.match(await evaluate("button('status').textContent"), /저장된 조회수 위치를 찾지 못했습니다/);
+    assert.equal(await evaluate("[...document.querySelectorAll('#changed-list tr')].filter(row => getComputedStyle(row).display !== 'none').length"), 6, 'unrecognized structure stays visible');
+    console.log('PASS: Chrome DOM integration — selection, table/card scopes, thresholds, invalid counts, restoration, Esc, reinjection, stale DOM, pagination, reload, scope isolation, disabled state, changed structure.');
   } finally {
     if (socket) socket.close();
     server.close();
