@@ -1,7 +1,7 @@
 (() => {
   const KEY = '__pickFilterV1';
   if (globalThis[KEY]) return;
-  const { parseCount, candidates, scopeKey, recipeFor, restoreRecipe } = globalThis.PickFilterCore;
+  const { parseCount, readCount, candidates, scopeKey, recipeFor, restoreRecipe } = globalThis.PickFilterCore;
   const storageKey = scopeKey(location.href);
   const host = document.createElement('div');
   host.hidden = true;
@@ -14,18 +14,18 @@
     </style>
     <section aria-label="PickFilter 설정">
       <header><h2>PickFilter</h2><button id="close" aria-label="패널 닫기">✕</button></header>
-      <small>게시판별 저장 · 조회수 필터</small>
-      <p>게시글의 조회수 숫자를 선택하고, 게시글 범위를 확인하세요.</p>
-      <button id="pick" class="primary">조회수 선택</button>
+      <small>게시판별 저장 · 숫자 조건 필터</small>
+      <p>조회수·댓글수 등 원하는 숫자를 선택하고, 게시글 범위를 확인하세요.</p>
+      <button id="pick" class="primary">숫자 항목 선택</button>
       <div id="selection" hidden>
         <div class="row"><button id="smaller">범위 좁히기</button><button id="larger">범위 넓히기</button></div>
         <div id="preview"></div>
         <div class="row"><button id="confirm">이 범위 확정</button></div>
       </div>
-      <label for="threshold">최소 조회수 (이상)</label>
+      <label for="threshold">최소값 (이상)</label>
       <input id="threshold" inputmode="numeric" placeholder="예: 1,000" value="1000">
       <div class="row"><button id="apply" class="primary" disabled>적용</button><button id="reset">필터 해제</button></div>
-      <p id="status" role="status" aria-live="polite">조회수를 선택해 시작하세요.</p>
+      <p id="status" role="status" aria-live="polite">필터링할 숫자를 선택해 시작하세요.</p>
       <small>적용한 설정은 같은 게시판의 다음 페이지와 새로고침 후에도 유지됩니다.</small>
     </section>`;
   document.documentElement.append(host);
@@ -71,9 +71,9 @@
     const option = options[index];
     const readings = option.readings;
     readings.forEach(item => mark(item.row, 'row'));
-    const parsed = readings.map(item => parseCount(item.element?.textContent ?? ''));
+    const parsed = readings.map(item => readCount(item.element?.textContent ?? ''));
     $('preview').textContent = `${option.row.tagName.toLowerCase()} 영역 · ${readings.length}개 항목\n` +
-      parsed.slice(0, 8).map((count, i) => `${i + 1}. ${count === null ? '판독 불가' : count.toLocaleString() + '회'}`).join('\n');
+      parsed.slice(0, 8).map((count, i) => `${i + 1}. ${count === null ? '판독 불가' : count.toLocaleString() + '건'}`).join('\n');
     $('smaller').disabled = index === 0;
     $('larger').disabled = index === options.length - 1;
     $('confirm').disabled = parsed.filter(n => n !== null).length < 2;
@@ -86,11 +86,11 @@
     if (event.composedPath().includes(host)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     const selected = event.target;
-    if (!(selected instanceof Element) || parseCount(selected.textContent) === null) {
-      status('조회수 숫자만 포함된 요소를 클릭하세요. Esc로 취소할 수 있습니다.'); return;
+    if (!(selected instanceof Element) || readCount(selected.textContent) === null) {
+      status('숫자 또는 [74] 같은 댓글수 표시를 클릭하세요. Esc로 취소할 수 있습니다.'); return;
     }
     options = candidates(selected);
-    if (!options.length) { status('반복되는 게시글 구조를 찾지 못했습니다. 다른 조회수를 선택하세요.'); return; }
+    if (!options.length) { status('반복되는 게시글 구조를 찾지 못했습니다. 다른 숫자 항목을 선택하세요.'); return; }
     stopPicking();
     // Prefer an entire table row or an item containing a link over a numeric sub-cell.
     const preferred = options.findIndex(option => option.row.matches('tr, article, li') || option.row.querySelector('a[href]'));
@@ -103,27 +103,27 @@
     picking = true;
     document.addEventListener('pointerover', onHover, true);
     document.addEventListener('click', onPick, true);
-    status('페이지의 조회수 숫자를 클릭하세요. Esc로 취소합니다.');
+    status('페이지의 조회수·댓글수 숫자를 클릭하세요. Esc로 취소합니다.');
   };
   $('smaller').onclick = () => { index--; showPreview(); };
   $('larger').onclick = () => { index++; showPreview(); };
   $('confirm').onclick = () => {
     confirmed = true; clearMarks(); $('apply').disabled = false;
-    status('범위를 확정했습니다. 최소 조회수를 입력하고 적용하세요.');
+    status('범위를 확정했습니다. 최소값을 입력하고 적용하세요.');
   };
   function applyFilter(save = true) {
     if (!confirmed) return;
     const threshold = parseCount($('threshold').value);
-    if (threshold === null) { status('최소 조회수는 0 이상의 정수로 입력하세요. 예: 1,000'); return; }
+    if (threshold === null) { status('최소값은 0 이상의 정수로 입력하세요. 예: 1,000'); return; }
     const readings = options[index].readings;
     if (readings.some(item => !item.row.isConnected || (item.element && !item.row.contains(item.element)))) {
       clearMarks(); confirmed = false; active = false; $('apply').disabled = true;
-      status('목록 구조가 변경되었습니다. 조회수를 다시 선택하세요.'); return;
+      status('목록 구조가 변경되었습니다. 숫자 항목을 다시 선택하세요.'); return;
     }
     clearMarks();
     let shown = 0, hidden = 0, unknown = 0;
     for (const item of readings) {
-      const count = parseCount(item.element?.textContent ?? '');
+      const count = readCount(item.element?.textContent ?? '');
       if (count === null) unknown++;
       else if (count < threshold) { mark(item.row, 'hidden'); hidden++; }
       else shown++;
@@ -150,7 +150,7 @@
       const option = restoreRecipe(saved.recipe);
       if (!option) {
         host.hidden = false;
-        status('저장된 조회수 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
+        status('저장된 숫자 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
         return;
       }
       options = [option]; index = 0; confirmed = true;
@@ -158,7 +158,7 @@
       if (saved.enabled) applyFilter(false);
       else status('저장된 설정을 불러왔습니다. 적용을 누르면 필터를 다시 켭니다.');
     } catch {
-      status('저장된 설정을 불러오지 못했습니다. 조회수를 다시 선택하세요.');
+      status('저장된 설정을 불러오지 못했습니다. 숫자 항목을 다시 선택하세요.');
     }
   })();
 })();

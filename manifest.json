@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "PickFilter — 조회수 필터",
-  "version": "0.1.1",
-  "description": "페이지에서 조회수 요소를 선택하고 기준 이상인 게시글만 표시합니다.",
+  "name": "PickFilter — 게시글 숫자 필터",
+  "version": "0.1.2",
+  "description": "페이지에서 조회수·댓글수 등 숫자 요소를 선택하고 기준 이상인 게시글만 표시합니다.",
   "permissions": [
     "activeTab",
     "scripting",

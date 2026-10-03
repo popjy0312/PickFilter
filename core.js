@@ -6,6 +6,14 @@
     return Number.isSafeInteger(count) ? count : null;
   };
 
+  // Comment badges commonly wrap a count in brackets: [74]. Keep threshold
+  // input strict and never extract a number from a title containing other text.
+  function readCount(value) {
+    const text = String(value).trim();
+    const bracketed = text.match(/^\[\s*(.*?)\s*\]$/);
+    return parseCount(bracketed ? bracketed[1] : text);
+  }
+
   // Match repeated siblings by tag and shared classes, never a guessed site selector.
   function peers(row) {
     if (!row.parentElement) return [];
@@ -90,11 +98,11 @@
     const rows = (recipe.classes.length && common.length ? common : tags)
       .filter(el => [...el.children].map(child => child.tagName).join(',') === recipe.shape);
     const readings = rows.map(row => ({ row, element: readPath(row, recipe.path) }));
-    if (!readings.some(item => parseCount(item.element?.textContent ?? '') !== null)) return null;
+    if (!readings.some(item => readCount(item.element?.textContent ?? '') !== null)) return null;
     return { row: rows[0], path: recipe.path, readings };
   }
 
-  const api = { parseCount, peers, pathTo, readPath, candidates, scopeKey, recipeFor, restoreRecipe };
+  const api = { parseCount, readCount, peers, pathTo, readPath, candidates, scopeKey, recipeFor, restoreRecipe };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else globalThis.PickFilterCore = api;
 })();

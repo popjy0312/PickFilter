@@ -22,3 +22,14 @@ test('page numbers share settings while other paths, origins and queries stay se
   assert.notEqual(scopeKey(base), scopeKey(base + '?search_keyword=test'));
   assert.notEqual(scopeKey(base), scopeKey('https://other.example/starcraft'));
 });
+
+test('comment badges accept bracketed counts without treating title numbers as metrics', () => {
+  const { readCount } = require('../core.js');
+  for (const [input, expected] of [['[74]',74], [' [ 1,234 ] ',1234], ['[0]',0], ['74',74]]) {
+    assert.equal(readCount(input), expected);
+  }
+  for (const input of ['[]', '[1,23]', '[-1]', '[1.5]', '제목 [74]', '[74] 제목', '[74][12]', '2026년 경기']) {
+    assert.equal(readCount(input), null, input);
+  }
+  assert.equal(parseCount('[74]'), null, 'threshold input stays strict');
+});
