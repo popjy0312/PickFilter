@@ -1,0 +1,127 @@
+(() => {
+  const KEY = '__pickFilterV1';
+  if (globalThis[KEY]) { globalThis[KEY].open(); return; }
+  const { parseCount, candidates } = globalThis.PickFilterCore;
+  const host = document.createElement('div');
+  host.style.cssText = 'all:initial;position:fixed;right:20px;top:20px;z-index:2147483647;';
+  const shadow = host.attachShadow({ mode: 'open' });
+  shadow.innerHTML = `
+    <style>
+      :host{color-scheme:light}*{box-sizing:border-box}section{width:340px;max-width:calc(100vw - 32px);max-height:90vh;overflow:auto;background:#fff;color:#1e293b;border:1px solid #cbd5e1;border-radius:16px;box-shadow:0 12px 45px #0f172a33;font:14px/1.6 system-ui,sans-serif;padding:20px}
+      header{display:flex;justify-content:space-between;align-items:center}h2{font-size:20px;margin:0}p{margin:10px 0}small{color:#64748b}button,input{font:inherit;border:1px solid #cbd5e1;border-radius:8px;padding:7px 10px;background:white;color:#1e293b}button{cursor:pointer}button:hover{background:#f1f5f9}button:disabled{opacity:.45;cursor:default}button.primary{background:#2563eb;color:white;border-color:#2563eb}button:focus-visible,input:focus-visible{outline:3px solid #93c5fd}input{width:100%;margin:6px 0 10px}.row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}[hidden]{display:none!important}#preview{white-space:pre-line;background:#f1f5f9;border-radius:8px;padding:10px;max-height:160px;overflow:auto}#status{padding-top:10px;border-top:1px solid #e2e8f0}label{font-weight:600}
+    </style>
+    <section aria-label="PickFilter 설정">
+      <header><h2>PickFilter</h2><button id="close" aria-label="패널 닫기">✕</button></header>
+      <small>현재 페이지 · 조회수 필터</small>
+      <p>게시글의 조회수 숫자를 선택하고, 게시글 범위를 확인하세요.</p>
+      <button id="pick" class="primary">조회수 선택</button>
+      <div id="selection" hidden>
+        <div class="row"><button id="smaller">범위 좁히기</button><button id="larger">범위 넓히기</button></div>
+        <div id="preview"></div>
+        <div class="row"><button id="confirm">이 범위 확정</button></div>
+      </div>
+      <label for="threshold">최소 조회수 (이상)</label>
+      <input id="threshold" inputmode="numeric" placeholder="예: 1,000" value="1000">
+      <div class="row"><button id="apply" class="primary" disabled>적용</button><button id="reset">필터 해제</button></div>
+      <p id="status" role="status" aria-live="polite">조회수를 선택해 시작하세요.</p>
+      <small>판독 불가 항목은 유지합니다. 새로고침하면 설정이 초기화됩니다.</small>
+    </section>`;
+  document.documentElement.append(host);
+  const $ = id => shadow.getElementById(id);
+  const token = `data-pickfilter-${crypto.randomUUID()}`;
+  const style = document.createElement('style');
+  style.textContent = `[${token}="hidden"]{display:none!important}[${token}="row"]{outline:2px solid #2563eb!important;outline-offset:-2px!important}[${token}="hover"]{outline:3px solid #f59e0b!important;outline-offset:-3px!important}`;
+  document.documentElement.append(style);
+  const marked = new Set();
+  let options = [], index = 0, confirmed = false, picking = false, hover = null;
+  let active = false;
+  const status = message => { $('status').textContent = message; };
+  function clearMarks() {
+    marked.forEach(el => el.removeAttribute(token));
+    marked.clear();
+  }
+  function mark(el, value) { el.setAttribute(token, value); marked.add(el); }
+  function stopPicking() {
+    picking = false;
+    document.removeEventListener('pointerover', onHover, true);
+    document.removeEventListener('click', onPick, true);
+    if (hover) { hover.removeAttribute(token); hover = null; }
+  }
+  function onHover(event) {
+    if (event.composedPath().includes(host)) return;
+    if (hover) hover.removeAttribute(token);
+    hover = event.target;
+    if (hover instanceof Element) hover.setAttribute(token, 'hover');
+  }
+  function showPreview() {
+    clearMarks();
+    const option = options[index];
+    const readings = option.readings;
+    readings.forEach(item => mark(item.row, 'row'));
+    const parsed = readings.map(item => parseCount(item.element?.textContent ?? ''));
+    $('preview').textContent = `${option.row.tagName.toLowerCase()} 영역 · ${readings.length}개 항목\n` +
+      parsed.slice(0, 8).map((count, i) => `${i + 1}. ${count === null ? '판독 불가' : count.toLocaleString() + '회'}`).join('\n');
+    $('smaller').disabled = index === 0;
+    $('larger').disabled = index === options.length - 1;
+    $('confirm').disabled = parsed.filter(n => n !== null).length < 2;
+    $('selection').hidden = false;
+    $('apply').disabled = true;
+    confirmed = false;
+    status('파란 테두리가 게시글 전체인지 확인하세요. 숫자 칸만 선택됐다면 범위를 넓히세요.');
+  }
+  function onPick(event) {
+    if (event.composedPath().includes(host)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    const selected = event.target;
+    if (!(selected instanceof Element) || parseCount(selected.textContent) === null) {
+      status('조회수 숫자만 포함된 요소를 클릭하세요. Esc로 취소할 수 있습니다.'); return;
+    }
+    options = candidates(selected);
+    if (!options.length) { status('반복되는 게시글 구조를 찾지 못했습니다. 다른 조회수를 선택하세요.'); return; }
+    stopPicking();
+    // Prefer an entire table row or an item containing a link over a numeric sub-cell.
+    const preferred = options.findIndex(option => option.row.matches('tr, article, li') || option.row.querySelector('a[href]'));
+    index = preferred < 0 ? 0 : preferred;
+    showPreview();
+  }
+  $('pick').onclick = () => {
+    stopPicking(); clearMarks(); active = false; confirmed = false;
+    $('apply').disabled = true; $('selection').hidden = true;
+    picking = true;
+    document.addEventListener('pointerover', onHover, true);
+    document.addEventListener('click', onPick, true);
+    status('페이지의 조회수 숫자를 클릭하세요. Esc로 취소합니다.');
+  };
+  $('smaller').onclick = () => { index--; showPreview(); };
+  $('larger').onclick = () => { index++; showPreview(); };
+  $('confirm').onclick = () => {
+    confirmed = true; clearMarks(); $('apply').disabled = false;
+    status('범위를 확정했습니다. 최소 조회수를 입력하고 적용하세요.');
+  };
+  $('apply').onclick = () => {
+    if (!confirmed) return;
+    const threshold = parseCount($('threshold').value);
+    if (threshold === null) { status('최소 조회수는 0 이상의 정수로 입력하세요. 예: 1,000'); return; }
+    const readings = options[index].readings;
+    if (readings.some(item => !item.row.isConnected || (item.element && !item.row.contains(item.element)))) {
+      clearMarks(); confirmed = false; active = false; $('apply').disabled = true;
+      status('목록 구조가 변경되었습니다. 조회수를 다시 선택하세요.'); return;
+    }
+    clearMarks();
+    let shown = 0, hidden = 0, unknown = 0;
+    for (const item of readings) {
+      const count = parseCount(item.element?.textContent ?? '');
+      if (count === null) unknown++;
+      else if (count < threshold) { mark(item.row, 'hidden'); hidden++; }
+      else shown++;
+    }
+    active = true;
+    status(`조건 일치 ${shown}개 · 숨김 ${hidden}개 · 판독 불가 ${unknown}개 (유지)` + (shown === 0 ? '\n조건에 맞는 게시글이 없습니다.' : ''));
+  };
+  $('reset').onclick = () => { stopPicking(); clearMarks(); active = false; status('필터를 해제했습니다. 원래 목록을 표시합니다.'); };
+  $('close').onclick = () => { stopPicking(); if (!active) clearMarks(); host.hidden = true; };
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && picking) { stopPicking(); status('선택을 취소했습니다.'); }
+  }, true);
+  globalThis[KEY] = { open: () => { host.hidden = false; } };
+})();
