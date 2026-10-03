@@ -116,8 +116,8 @@ const assert = require('node:assert/strict');
     assert.equal(await evaluate("[...document.querySelectorAll('.card')].filter(el => getComputedStyle(el).display !== 'none').length"), 1, 'card structure filters independently');
     assert.equal(await evaluate('visibleRows()'), 6, 'table unaffected by card filter');
     await evaluate("button('reset').click(); choose('#pick-target'); document.querySelector('#posts tr').remove(); apply('1000')");
-    assert.match(await evaluate("button('status').textContent"), /목록 구조가 변경/);
-    assert.equal(await evaluate('visibleRows()'), 5, 'changed structure does not hide stale selection');
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 2개 · 숨김 1개 · 판독 불가 2개/);
+    assert.equal(await evaluate('visibleRows()'), 4, 'removing a row refreshes selection instead of invalidating the whole list');
 
     async function loadPage(suffix, mutate) {
       await send('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/${suffix}` });
@@ -135,7 +135,12 @@ const assert = require('node:assert/strict');
     }
     await loadPage('?page=1');
     await evaluate("button('pick').click(); document.querySelector('#pick-target').click(); button('confirm').click(); button('threshold').value='1000'; button('apply').click()");
-    await loadPage('?page=2');
+    await loadPage('?page=2', `
+      const key = 'pickfilter:v1:' + location.origin + '/';
+      const saved = JSON.parse(localStorage.getItem(key));
+      delete saved.recipe.version; delete saved.recipe.metricSelector;
+      localStorage.setItem(key, JSON.stringify(saved));`);
+    assert.equal(await evaluate("JSON.parse(localStorage.getItem('pickfilter:v1:' + location.origin + '/')).recipe.version"), 2, 'legacy recipe upgrades when its original location can be resolved');
     assert.equal(await evaluate('visibleRows()'), 4, 'next page automatically reuses row selection and threshold');
     assert.equal(await evaluate("button('threshold').value"), '1000');
     assert.equal(await evaluate('getComputedStyle(panel.host).display'), 'none', 'automatic restoration is visually hidden');
@@ -171,8 +176,45 @@ const assert = require('node:assert/strict');
     await loadPage('board?sort=popular&order=desc&page=2');
     assert.equal(await evaluate("button('threshold').value"), '50');
     assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 2개 · 판독 불가 1개/);
+    await loadPage('board?sort=popular&order=desc&page=3', `
+      document.querySelectorAll('#popular-posts > li').forEach(row => {
+        row.insertAdjacentHTML('afterbegin', '<div class="thumbnail">thumbnail</div>');
+        const badge = row.querySelector('.replyNum');
+        if (badge) { const wrapper = document.createElement('strong'); badge.replaceWith(wrapper); wrapper.append(badge); }
+      });`);
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 2개 · 판독 불가 1개/, 'extra thumbnails and badge wrappers do not invalidate scope');
+    await loadPage('board?sort=popular&order=desc&page=4');
+    await evaluate("document.querySelector('#popular-posts').outerHTML = document.querySelector('#popular-posts').outerHTML");
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 2개 · 판독 불가 1개/, 'replacement DOM is automatically rebound');
+    assert.equal(await evaluate("[...document.querySelectorAll('#popular-posts > li')].filter(el => getComputedStyle(el).display !== 'none').length"), 4);
+    await evaluate("document.querySelector('#popular-posts li:nth-child(2) .replyNum').textContent = '[150]'");
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 4개 · 숨김 1개 · 판독 불가 1개/, 'live metric changes restore newly matching rows');
+    await loadPage('board?sort=popular&order=desc&page=5', `
+      globalThis.delayedList = document.querySelector('#popular-posts'); delayedList.remove();`);
+    await evaluate('document.body.append(delayedList)');
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 2개 · 판독 불가 1개/, 'delayed list recovers automatically');
+    await loadPage('board?sort=popular&order=desc&page=6', `
+      document.querySelectorAll('#popular-posts .replyNum').forEach(el => el.remove());`);
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 0개 · 숨김 0개 · 판독 불가 6개/, 'missing comments never fall back to numeric views');
+    await loadPage('board?sort=popular&order=desc&page=7', `
+      const badge = document.querySelector('#popular-posts li:nth-child(2) .replyNum'); badge.after(badge.cloneNode(true));`);
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 3개 · 숨김 1개 · 판독 불가 2개/, 'ambiguous metric is left visible');
     await evaluate("button('reset').click()");
-    assert.equal(await evaluate("[...document.querySelectorAll('#popular-posts > li')].filter(el => getComputedStyle(el).display !== 'none').length"), 6, 'comment reset restores all posts');
+    await evaluate("document.querySelector('#popular-posts').append(document.querySelector('#popular-posts li').cloneNode(true))");
+    await new Promise(resolve => setTimeout(resolve, 250));
+    assert.equal(await evaluate("[...document.querySelectorAll('#popular-posts > li')].filter(el => getComputedStyle(el).display !== 'none').length"), 7, 'reset stops automatic filtering');
+    // A class-identified container should survive an inserted sibling div.
+    await loadPage('cards?page=1');
+    await evaluate("button('pick').click(); document.querySelector('#card-target').click(); button('confirm').click(); button('threshold').value='1000'; button('apply').click()");
+    await loadPage('cards?page=2', "document.querySelector('.cards').insertAdjacentHTML('beforebegin', '<div>new banner</div>')");
+    assert.match(await evaluate("button('status').textContent"), /조건 일치 1개 · 숨김 1개/, 'stable container class survives inserted banner');
+    await loadPage('cards?page=3', "document.querySelector('.cards').after(document.querySelector('.cards').cloneNode(true))");
+    assert.match(await evaluate("button('status').textContent"), /저장된 숫자 위치를 찾지 못했습니다/, 'ambiguous container is never guessed');
+    assert.equal(await evaluate("[...document.querySelectorAll('.card')].filter(el => getComputedStyle(el).display !== 'none').length"), 4);
+
     console.log('PASS: Chrome DOM integration — selection, table/card scopes, thresholds, invalid counts, restoration, Esc, reinjection, stale DOM, pagination, reload, scope isolation, disabled state, changed structure, bracketed comments, comment pagination and reset.');
   } finally {
     if (socket) socket.close();

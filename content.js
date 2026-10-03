@@ -2,7 +2,7 @@
   const KEY = '__pickFilterV1';
   if (globalThis[KEY]) return;
   const { parseCount, readCount, candidates, scopeKey, recipeFor, restoreRecipe } = globalThis.PickFilterCore;
-  const storageKey = scopeKey(location.href);
+  let storageKey = scopeKey(location.href);
   const host = document.createElement('div');
   host.hidden = true;
   host.style.cssText = 'all:initial;position:fixed;right:20px;top:20px;z-index:2147483647;';
@@ -48,7 +48,7 @@
   document.documentElement.append(style);
   const marked = new Set();
   let options = [], index = 0, confirmed = false, picking = false, hover = null;
-  let active = false, touched = false, savedRecipe = null, savedThreshold = 1000;
+  let active = false, touched = false, savedRecipe = null, savedThreshold = 1000, currentRecipe = null;
   let saveQueue = Promise.resolve();
   shadow.addEventListener('click', () => { touched = true; }, true);
   shadow.addEventListener('input', () => { touched = true; }, true);
@@ -62,6 +62,8 @@
   const status = message => { $('status').textContent = message; };
   function clearMarks() {
     marked.forEach(el => el.removeAttribute(token));
+    // Some renderers clone nodes, including our transient attributes.
+    document.querySelectorAll('[' + token + ']').forEach(el => el.removeAttribute(token));
     marked.clear();
   }
   function mark(el, value) { el.setAttribute(token, value); marked.add(el); }
@@ -90,7 +92,7 @@
     $('confirm').disabled = parsed.filter(n => n !== null).length < 2;
     $('selection').hidden = false;
     $('apply').disabled = true;
-    confirmed = false;
+    confirmed = false; currentRecipe = null;
     status('파란 테두리가 게시글 전체인지 확인하세요. 숫자 칸만 선택됐다면 범위를 넓히세요.');
   }
   function onPick(event) {
@@ -109,7 +111,8 @@
     showPreview();
   }
   $('pick').onclick = () => {
-    stopPicking(); clearMarks(); active = false; confirmed = false;
+    storageKey = scopeKey(location.href);
+    stopPicking(); clearMarks(); active = false; confirmed = false; currentRecipe = null;
     $('apply').disabled = true; $('selection').hidden = true;
     picking = true;
     document.addEventListener('pointerover', onHover, true);
@@ -119,18 +122,23 @@
   $('smaller').onclick = () => { index--; showPreview(); };
   $('larger').onclick = () => { index++; showPreview(); };
   $('confirm').onclick = () => {
+    currentRecipe = recipeFor(options[index]);
+    $('selection').hidden = true;
     confirmed = true; clearMarks(); $('apply').disabled = false;
     status('범위를 확정했습니다. 최소값을 입력하고 적용하세요.');
   };
   function applyFilter(save = true) {
-    if (!confirmed) return;
-    const threshold = parseCount($('threshold').value);
+    if (!currentRecipe) return;
+    const threshold = save ? parseCount($('threshold').value) : savedThreshold;
     if (threshold === null) { status('최소값은 0 이상의 정수로 입력하세요. 예: 1,000'); return; }
-    const readings = options[index].readings;
-    if (readings.some(item => !item.row.isConnected || (item.element && !item.row.contains(item.element)))) {
-      clearMarks(); confirmed = false; active = false; $('apply').disabled = true;
-      status('목록 구조가 변경되었습니다. 숫자 항목을 다시 선택하세요.'); return;
+    const option = restoreRecipe(currentRecipe);
+    if (!option) {
+      clearMarks(); confirmed = false; $('apply').disabled = true;
+      status('저장된 숫자 위치를 찾지 못했습니다. 목록 갱신을 기다리는 중입니다. 계속되면 다시 선택하세요.');
+      return;
     }
+    options = [option]; index = 0; confirmed = true; $('apply').disabled = false;
+    const readings = option.readings;
     clearMarks();
     let shown = 0, hidden = 0, unknown = 0;
     for (const item of readings) {
@@ -140,7 +148,7 @@
       else shown++;
     }
     active = true;
-    if (save) { savedRecipe = recipeFor(options[index]); savedThreshold = threshold; persist(true); }
+    if (save) { savedRecipe = currentRecipe; savedThreshold = threshold; persist(true); }
     status(`조건 일치 ${shown}개 · 숨김 ${hidden}개 · 판독 불가 ${unknown}개 (유지)` + (shown === 0 ? '\n조건에 맞는 게시글이 없습니다.' : ''));
   };
   $('apply').onclick = () => applyFilter();
@@ -154,6 +162,25 @@
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape' && picking) { stopPicking(); status('선택을 취소했습니다.'); }
   }, true);
+  // Observe page content, not our UI or filtering attributes, so replacement
+  // lists and delayed rendering can recover without creating a mutation loop.
+  let refreshTimer;
+  const observer = new MutationObserver(() => {
+    if (!currentRecipe || !active || picking) return;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      if (!currentRecipe || !active || picking) return;
+      if (scopeKey(location.href) !== storageKey) {
+        clearMarks(); active = false; currentRecipe = null; confirmed = false;
+        $('apply').disabled = true;
+        status('다른 목록으로 이동했습니다. 이 목록의 숫자 항목을 선택하세요.');
+        return;
+      }
+      applyFilter(false);
+    }, 100);
+  });
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true,
+    attributes: true, attributeFilter: ['class', 'id'] });
   globalThis[KEY] = { toggle: () => {
     if (host.hidden) setPanelVisible(true);
     else hidePanel();
@@ -166,15 +193,21 @@
       if (parseCount(saved.threshold) === null) return;
       savedThreshold = saved.threshold;
       $('threshold').value = saved.threshold;
-      const option = restoreRecipe(saved.recipe);
-      if (!option) {
-        status('저장된 숫자 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
-        return;
+      currentRecipe = saved.recipe;
+      active = !!saved.enabled;
+      const option = restoreRecipe(currentRecipe);
+      if (option) {
+        // Upgrade earlier recipes when their original location is still valid.
+        if (!currentRecipe.version) {
+          savedRecipe = currentRecipe = recipeFor(option);
+          persist(active);
+        }
+        options = [option]; index = 0; confirmed = true;
+        $('apply').disabled = false;
       }
-      options = [option]; index = 0; confirmed = true;
-      $('apply').disabled = false;
-      if (saved.enabled) applyFilter(false);
-      else status('저장된 설정을 불러왔습니다. 적용을 누르면 필터를 다시 켭니다.');
+      if (active) applyFilter(false);
+      else if (option) status('저장된 설정을 불러왔습니다. 적용을 누르면 필터를 다시 켭니다.');
+      else status('저장된 숫자 위치를 찾지 못했습니다. 목록 구조를 확인하고 다시 선택하세요.');
     } catch {
       status('저장된 설정을 불러오지 못했습니다. 숫자 항목을 다시 선택하세요.');
     }

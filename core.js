@@ -70,13 +70,43 @@
         parts.unshift('#' + CSS.escape(node.id)); break;
       }
       const siblings = node.parentElement ? [...node.parentElement.children].filter(el => el.tagName === node.tagName) : [node];
-      parts.unshift(node.tagName.toLowerCase() + ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')');
+      const tag = node.tagName.toLowerCase();
+      const stable = [...node.classList].map(name => tag + '.' + CSS.escape(name))
+        .find(selector => siblings.filter(el => el.matches(selector)).length === 1);
+      parts.unshift(stable || tag + ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')');
     }
     return parts.join(' > ');
   }
 
+  function metricSelectorFor(option) {
+    const selected = readPath(option.row, option.path);
+    if (!selected) return null;
+    // A class-based relative path survives inserted badges, wrappers and cells.
+    // Use it only when it resolves the selected metric unambiguously in peers.
+    let best = null, bestCount = 1;
+    // Include ancestor classes when the numeric span itself has none.
+    let node = selected;
+    const suffix = [];
+    while (node !== option.row) {
+      for (const name of node.classList) {
+        const selector = node.tagName.toLowerCase() + '.' + CSS.escape(name) + suffix.join('');
+        const matches = option.readings.map(item => [...item.row.querySelectorAll(selector)]);
+        if (matches.some(items => items.length > 1)) continue;
+        const count = matches.filter(items => items.length === 1 && readCount(items[0].textContent) !== null).length;
+        if (count > bestCount) { best = selector; bestCount = count; }
+      }
+      if (best) return best;
+      const siblings = [...node.parentElement.children].filter(el => el.tagName === node.tagName);
+      suffix.unshift(' > ' + node.tagName.toLowerCase() + ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')');
+      node = node.parentElement;
+    }
+    return null;
+  }
+
   function recipeFor(option) {
     return {
+      version: 2,
+      metricSelector: option.metricSelector || metricSelectorFor(option),
       container: selectorFor(option.row.parentElement),
       tag: option.row.tagName,
       classes: [...option.row.classList],
@@ -86,15 +116,21 @@
   }
 
   function restoreRecipe(recipe) {
-    const container = document.querySelector(recipe.container);
-    if (!container) return null;
+    const containers = document.querySelectorAll(recipe.container);
+    if (containers.length !== 1) return null;
+    const container = containers[0];
     const tags = [...container.children].filter(el => el.tagName === recipe.tag);
     const common = tags.filter(el => recipe.classes.some(name => el.classList.contains(name)));
     const rows = (recipe.classes.length && common.length ? common : tags)
-      .filter(el => [...el.children].map(child => child.tagName).join(',') === recipe.shape);
-    const readings = rows.map(row => ({ row, element: readPath(row, recipe.path) }));
-    if (!readings.some(item => readCount(item.element?.textContent ?? '') !== null)) return null;
-    return { row: rows[0], path: recipe.path, readings };
+      .filter(el => recipe.metricSelector || [...el.children].map(child => child.tagName).join(',') === recipe.shape);
+    if (!rows.length) return null;
+    const readings = rows.map(row => {
+      if (!recipe.metricSelector) return { row, element: readPath(row, recipe.path) };
+      const matches = row.querySelectorAll(recipe.metricSelector);
+      return { row, element: matches.length === 1 ? matches[0] : null };
+    });
+    if (!recipe.metricSelector && !readings.some(item => readCount(item.element?.textContent ?? '') !== null)) return null;
+    return { row: rows[0], path: recipe.path, metricSelector: recipe.metricSelector, readings };
   }
 
   const api = { parseCount, readCount, peers, pathTo, readPath, candidates, scopeKey, recipeFor, restoreRecipe };
