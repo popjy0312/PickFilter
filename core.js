@@ -59,11 +59,6 @@
     const url = new URL(input);
     url.hash = '';
     url.searchParams.delete('page');
-    // XE also links to the same board through index.php?mid=board&page=N.
-    if (/(^|\.)fmkorea\.com$/.test(url.hostname) && ['/', '/index.php'].includes(url.pathname) && url.searchParams.has('mid')) {
-      url.pathname = '/' + encodeURIComponent(url.searchParams.get('mid'));
-      url.searchParams.delete('mid');
-    }
     url.searchParams.sort();
     return 'pickfilter:v1:' + url.href;
   }

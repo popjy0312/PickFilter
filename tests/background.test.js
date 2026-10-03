@@ -24,6 +24,9 @@ function setup(fails = false) {
 test('manifest has runnable entrypoints and minimal permissions', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
   assert.equal(manifest.manifest_version, 3);
+  for (const key of ['content_scripts', 'host_permissions', 'optional_host_permissions']) {
+    assert.equal(manifest[key], undefined, key + ' must not grant background site access');
+  }
   assert.deepEqual(manifest.permissions, ['activeTab', 'scripting', 'storage']);
   assert.ok(fs.existsSync(path.join(root, manifest.background.service_worker)));
 });
@@ -48,9 +51,9 @@ test('missing tab does not attempt injection', async () => {
 
 test('completed pagination restores a saved scope without opening the panel', async () => {
   const { updated, saved, calls } = setup();
-  saved[require('../core.js').scopeKey('https://www.fmkorea.com/starcraft')] = { enabled: true };
-  await updated(42, { status: 'complete' }, { url: 'https://www.fmkorea.com/starcraft?page=2' });
+  saved[require('../core.js').scopeKey('https://example.com/board')] = { enabled: true };
+  await updated(42, { status: 'complete' }, { url: 'https://example.com/board?page=2' });
   assert.deepEqual(Array.from(calls[0][1].files), ['core.js', 'content.js']);
-  await updated(42, { status: 'complete' }, { url: 'https://www.fmkorea.com/other?page=2' });
+  await updated(42, { status: 'complete' }, { url: 'https://example.com/other?page=2' });
   assert.equal(calls.length, 1);
 });

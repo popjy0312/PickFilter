@@ -14,13 +14,14 @@ test('missing, malformed, fractional, negative, and unsafe counts stay unreadabl
 
 test('page numbers share settings while other paths, origins and queries stay separate', () => {
   const { scopeKey } = require('../core.js');
-  const base = 'https://www.fmkorea.com/starcraft';
+  const base = 'https://example.com/board';
   assert.equal(scopeKey(base), scopeKey(base + '?page=2#list'));
-  assert.equal(scopeKey(base), scopeKey('https://www.fmkorea.com/index.php?mid=starcraft&page=3'));
-  assert.notEqual(scopeKey(base), scopeKey('https://www.fmkorea.com/other?page=2'));
+  assert.notEqual(scopeKey(base), scopeKey('https://example.com/other?page=2'));
   assert.notEqual(scopeKey(base), scopeKey(base + '/12345'));
+  assert.notEqual(scopeKey('https://example.com/index.php?mid=one'), scopeKey('https://example.com/index.php?mid=two'));
+  assert.equal(scopeKey('https://example.com/index.php?mid=one'), scopeKey('https://example.com/index.php?page=2&mid=one'));
   assert.notEqual(scopeKey(base), scopeKey(base + '?search_keyword=test'));
-  assert.notEqual(scopeKey(base), scopeKey('https://other.example/starcraft'));
+  assert.notEqual(scopeKey(base), scopeKey('https://other.example/board'));
 });
 
 test('comment badges accept bracketed counts without treating title numbers as metrics', () => {
